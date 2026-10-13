@@ -1,0 +1,14 @@
+# Sirlar va lokal ma'lumotlar - GitHub'ga yuklanmaydi
+.env
+data/
+logs/
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
