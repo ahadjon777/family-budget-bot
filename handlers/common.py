@@ -37,7 +37,7 @@ async def save_and_reply(target: Message, user, db: Database, family_id: int,
         created_at=now.strftime("%Y-%m-%d %H:%M:%S"),
     )
     row = await db.get_expense(family_id, expense_id)
-    await target.answer(await saved_text(db, family_id, row), reply_markup=after_save_kb(expense_id))
+    await target.answer(await saved_text(db, family_id, row), reply_markup=after_save_kb(expense_id, bool(note)))
 
     warning = await check_limit_warning(db, family_id)
     if warning:

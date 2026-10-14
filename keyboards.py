@@ -67,10 +67,13 @@ def skip_note_kb() -> InlineKeyboardMarkup:
     ])
 
 
-def after_save_kb(expense_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Tahrirlash / 🗑 O'chirish", callback_data=f"view:{expense_id}")]
-    ])
+def after_save_kb(expense_id: int, has_note: bool = True) -> InlineKeyboardMarkup:
+    """Saqlangandan keyingi tugmalar. Izoh yozilmagan bo'lsa, '📝 Izoh qo'shish' tugmasi ham chiqadi."""
+    rows = []
+    if not has_note:
+        rows.append([InlineKeyboardButton(text="📝 Izoh qo'shish", callback_data=f"enote:{expense_id}")])
+    rows.append([InlineKeyboardButton(text="✏️ Tahrirlash / 🗑 O'chirish", callback_data=f"view:{expense_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def expense_actions_kb(expense_id: int) -> InlineKeyboardMarkup:

@@ -39,12 +39,13 @@ async def status_text(db: Database, settings: Settings) -> str:
     active = sum(1 for e in st["expires"] if sub_status(e)[0])
     today = await db.today_overview(today_local())
     size_kb = settings.db_path.stat().st_size / 1024 if settings.db_path.exists() else 0
+    active_today = await db.count_active_since(f"{today_local():%Y-%m-%d} 00:00:00")
     return "\n".join([
         "📡 <b>Bot holati</b>",
         f"🕒 Yangilandi: {now_local():%d.%m %H:%M:%S}",
         f"⏱ Ishlash vaqti: {_uptime()}",
         "",
-        f"👥 Foydalanuvchilar: <b>{st['users']}</b>",
+        f"👥 Foydalanuvchilar: <b>{st['users']}</b> (bugun faol: {active_today})",
         f"🏠 Oilalar: <b>{len(st['expires'])}</b> (faol: {active})",
         f"🧾 Jami harajatlar: <b>{st['expenses']}</b>",
         f"📅 Bugun: {today['count']} ta yozuv, {fmt_money(today['sum'])}, {today['families']} oilada",

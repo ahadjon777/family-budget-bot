@@ -10,7 +10,8 @@ from config import Settings
 from database import Database
 from keyboards import BTN_FAMILY, cancel_kb, main_menu
 from states import JoinFamily
-from utils import esc, fmt_date, now_local, sub_status
+from status import notify_admins
+from utils import esc, fmt_date, now_local, sub_status, user_label
 
 router = Router()
 
@@ -56,6 +57,13 @@ async def reg_new(call: CallbackQuery, state: FSMContext, db: Database, settings
     )
     await call.answer()
 
+    # Bot egasiga: yangi oila ochildi (obuna holati bilan)
+    if user.id not in settings.admin_ids:
+        await notify_admins(
+            call.bot, settings,
+            "🆕 <b>Yangi oila ro'yxatdan o'tdi</b>\n" + user_label(user) +
+            f"\n🏠 Oila #{fid} · 📅 Obuna: {obuna}")
+
 
 # ---------------------------------------------------------------- taklif kodi bilan qo'shilish
 @router.callback_query(F.data == "reg:join")
@@ -91,6 +99,13 @@ async def join_code(message: Message, state: FSMContext, db: Database, settings:
     if not active:
         text += "\n⛔ Oila obunasi tugagan. " + settings.contact_text
     await message.answer(text, reply_markup=main_menu())
+
+    if user.id not in settings.admin_ids:
+        members = await db.count_members(fam["id"])
+        await notify_admins(
+            message.bot, settings,
+            "➕ <b>Oilaga yangi a'zo qo'shildi</b>\n" + user_label(user) +
+            f"\n🏠 Oila #{fam['id']} {esc(fam['name'])} ({members}/{settings.max_members})")
 
 
 # ---------------------------------------------------------------- oila ma'lumoti

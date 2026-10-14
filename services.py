@@ -146,10 +146,42 @@ async def period_report(db: Database, fid: int, title: str, start: date, end: da
     return "\n".join(lines), total, count
 
 
+def _entry_line(row: dict, show_user: bool) -> str:
+    """Bitta yozuv: '• 14:20 🍽 30 000 so'm · 📝 tushlik · 👤 Ali'"""
+    emoji, _ = _cat(row["category"])
+    clock = (row.get("created_at") or "")[11:16]
+    parts = [f"• {clock} {emoji} {fmt_money(row['amount'])}".replace("•  ", "• ")]
+    if row.get("note"):
+        parts.append(f"📝 {esc(row['note'][:40])}")
+    if show_user and row.get("user_name"):
+        parts.append(f"👤 {esc(row['user_name'].split()[0])}")
+    return " · ".join(parts)
+
+
+TODAY_ENTRIES_LIMIT = 15
+
+
 async def today_report(db: Database, fid: int) -> str:
     d = today_local()
-    text, _, _ = await period_report(db, fid, f"📅 <b>Bugungi hisobot</b> — {fmt_date(d)}", d, d)
-    return text
+    text, _, count = await period_report(db, fid, f"📅 <b>Bugungi hisobot</b> — {fmt_date(d)}", d, d)
+    lines = [text]
+
+    # Har bir yozuv izoh va kim kiritgani bilan
+    rows = await db.expenses_between(fid, d, d, limit=TODAY_ENTRIES_LIMIT, newest_first=True)
+    if rows:
+        show_user = len({r["user_id"] for r in rows}) > 1
+        lines += ["", "🧾 <b>Bugungi yozuvlar:</b>"]
+        lines += [_entry_line(r, show_user) for r in rows]
+        if count > len(rows):
+            lines.append(f"… va yana {count - len(rows)} ta")
+
+    # "Bugun 0" chalkashligi bo'lmasligi uchun kechagi holat ham ko'rsatiladi
+    y = d - timedelta(days=1)
+    y_total, y_count = await db.total(fid, y, y)
+    lines.append("")
+    lines.append(f"🕘 Kecha: {fmt_money(y_total)} ({y_count} ta yozuv)" if y_count
+                 else "🕘 Kecha: harajat kiritilmagan")
+    return "\n".join(lines)
 
 
 async def week_report(db: Database, fid: int) -> str:
@@ -273,10 +305,20 @@ async def stats_report(db: Database, fid: int) -> str:
 
 
 # ---------------------------------------------------------------- eslatma
-async def reminder_text(db: Database, fid: int) -> str:
+def reminder_slot(hour: int):
+    """Eslatma vaqtiga qarab sarlavha va matn: ertalab / kunduz / kechki."""
+    if hour < 12:
+        return "🌅 <b>Ertalabki eslatma</b>", "Kechagi va bugungi harajatlarni kiritishni unutmang."
+    if hour < 18:
+        return "☀️ <b>Kunduzgi eslatma</b>", "Tushlik, transport va boshqa harajatlarni kiritdingizmi?"
+    return "🔔 <b>Kechki eslatma</b>", "Bugungi harajatlarni kiritishni unutmang."
+
+
+async def reminder_text(db: Database, fid: int, hour: int = 21) -> str:
     d = today_local()
     total, count = await db.total(fid, d, d)
-    lines = ["🔔 <b>Kechki eslatma</b>", "", "Bugungi harajatlarni kiritishni unutmang."]
+    title, hint = reminder_slot(hour)
+    lines = [title, "", hint]
     if count:
         lines.append(f"\n📅 Bugun kiritilgan: <b>{fmt_money(total)}</b> ({count} ta yozuv)")
     else:

@@ -20,6 +20,7 @@ USAGE = (
     "/uzaytir <code>oila_id kun</code> — obunani uzaytirish (masalan <code>/uzaytir 2 30</code>)\n"
     "/fikrlar — yangi fikr-mulohazalar; /fikrok ID — ko'rib chiqildi deb belgilash\n"
     "/holat — bot holati (foydalanuvchilar, oilalar, bugungi harajatlar)\n"
+    "/foydalanuvchilar — kim botdan foydalanyapti (oxirgi faolligi bilan)\n"
     "/cheksiz <code>oila_id</code> — cheksiz obuna\n"
     "/yopish <code>oila_id</code> — obunani darhol tugatish"
 )
@@ -51,6 +52,34 @@ async def admin_status(message: Message, db: Database, settings: Settings) -> No
     if not _is_admin(message, settings):
         return
     await message.answer(await status_text(db, settings))
+
+
+USERS_LIMIT = 20
+
+
+@router.message(Command("foydalanuvchilar"))
+async def admin_users(message: Message, db: Database, settings: Settings) -> None:
+    if not _is_admin(message, settings):
+        return
+    total = await db.count_users()
+    rows = await db.list_users(limit=USERS_LIMIT)
+    if not rows:
+        await message.answer("Hali birorta foydalanuvchi yo'q.")
+        return
+    lines = [f"👥 <b>Foydalanuvchilar</b> (jami {total}, oxirgi faollik bo'yicha):", ""]
+    for r in rows:
+        name = esc(r["name"]) or "Noma'lum"
+        uname = f" (@{esc(r['username'])})" if r["username"] else ""
+        badge = "👑 " if r["is_owner"] else ""
+        seen = r["last_active"][5:16].replace("-", ".") if r["last_active"] else "hali yozmagan"
+        lines.append(
+            f"{badge}<b>{name}</b>{uname} · ID <code>{r['user_id']}</code>\n"
+            f"   oila #{r['family_id']} {esc(r['family_name'] or '')} · harajat: {r['expense_count']}\n"
+            f"   oxirgi faollik: {seen}"
+        )
+    if total > len(rows):
+        lines.append(f"\n… va yana {total - len(rows)} ta")
+    await message.answer("\n".join(lines))
 
 
 @router.message(Command("fikrlar"))

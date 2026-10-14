@@ -56,7 +56,7 @@ def make_settings(db_path, **kw):
     base = dict(
         bot_token="123456:TEST", allowed_users=frozenset({USER_OK}),
         admin_ids=frozenset({USER_OK}), db_path=db_path,
-        reminder_hour=21, reminder_minute=0, trial_days=7, max_members=6,
+        reminder_times=((9, 0), (15, 0), (21, 0)), trial_days=7, max_members=6,
         contact_text="Aloqa: @admin", price_text="",
     )
     base.update(kw)
@@ -425,3 +425,90 @@ async def test_feedback_not_visible_to_non_admin(env):
     texts = await say(env, "/fikrlar", user=USER_X)
     assert not any("Yangi fikrlar" in t or "Fikr" in t and "#" in t for t in texts)
     assert len(await env["db"].list_feedback()) == 1
+
+
+# ---------------------------------------------------------------- izoh, hisobot, admin xabarlari
+def _sent(env):
+    return [c for c in env["session"].calls if type(c).__name__ == "SendMessage"]
+
+
+@pytest.mark.asyncio
+async def test_quick_entry_without_note_offers_note_button(env):
+    await say(env, "ovqat 45000")
+    markup = _sent(env)[-1].reply_markup
+    buttons = [b.callback_data for row in markup.inline_keyboard for b in row]
+    row = await env["db"].last_expense(env["fid"])
+    assert f"enote:{row['id']}" in buttons  # "📝 Izoh qo'shish"
+
+    # Izoh bilan kiritilsa, qo'shimcha tugma kerak emas
+    await say(env, "ovqat 30000 tushlik")
+    markup = _sent(env)[-1].reply_markup
+    buttons = [b.callback_data for row in markup.inline_keyboard for b in row]
+    assert not any(b.startswith("enote:") for b in buttons)
+
+    # Tugma orqali izoh qo'shish
+    await press(env, f"enote:{row['id']}")
+    await say(env, "kechki ovqat")
+    assert (await env["db"].get_expense(env["fid"], row["id"]))["note"] == "kechki ovqat"
+
+
+@pytest.mark.asyncio
+async def test_today_report_lists_notes_and_yesterday(env):
+    await say(env, "ovqat 45000 tushlik")
+    await say(env, "taksi 15000")
+    out = "\n".join(await say(env, "📅 Bugun"))
+    assert "Bugungi yozuvlar" in out and "tushlik" in out
+    assert "Kecha: harajat kiritilmagan" in out
+
+    # Kechagi yozuv "Bugun" da emas, lekin "Kecha" qatorida ko'rinadi
+    from datetime import timedelta
+    from utils import now_local
+    yesterday = now_local().date() - timedelta(days=1)
+    await env["db"].add_expense(env["fid"], USER_OK, "Ali", "food", 70000, "", yesterday,
+                                f"{yesterday} 12:00:00")
+    out = "\n".join(await say(env, "/bugun"))
+    assert "Kecha: 70 000 so'm (1 ta yozuv)" in out
+
+
+@pytest.mark.asyncio
+async def test_admin_notified_about_new_user_family_and_member(env):
+    NEW, JOINER = 222, 333
+    app.start._announced.clear()  # boshqa testlar bu ID larni allaqachon ishlatgan bo'lishi mumkin
+    await say(env, "/start", user=NEW)
+    sent = [c for c in env["session"].calls if getattr(c, "chat_id", None) == USER_OK]
+    assert any("Yangi foydalanuvchi" in c.text and "222" in c.text for c in sent)
+
+    # Takroriy /start admin'ni bezovta qilmaydi
+    await say(env, "/start", user=NEW)
+    assert not any("Yangi foydalanuvchi" in (getattr(c, "text", "") or "") for c in env["session"].calls)
+
+    await press(env, "reg:new", user=NEW)
+    sent = [c for c in env["session"].calls if getattr(c, "chat_id", None) == USER_OK]
+    assert any("Yangi oila" in c.text and "222" in c.text for c in sent)
+
+    code = (await env["db"].get_family(env["fid"]))["invite_code"]
+    await say(env, "/start", user=JOINER)
+    await press(env, "reg:join", user=JOINER)
+    await say(env, code, user=JOINER)
+    sent = [c for c in env["session"].calls if getattr(c, "chat_id", None) == USER_OK]
+    assert any("yangi a'zo" in c.text and "333" in c.text for c in sent)
+
+
+@pytest.mark.asyncio
+async def test_users_command_admin_only_and_tracks_activity(env):
+    await say(env, "ovqat 1000")
+    texts = "\n".join(await say(env, "/foydalanuvchilar"))
+    assert "Foydalanuvchilar" in texts and "Ali" in texts and "oxirgi faollik" in texts
+    row = await env["db"].get_user(USER_OK)
+    assert row["last_active"]  # middleware yozib bordi
+
+    USER_X = 444
+    await env["db"].add_user(USER_X, env["fid"], "Oddiy", "", False, "2026-10-01 00:00:00")
+    texts = await say(env, "/foydalanuvchilar", user=USER_X)
+    assert not any("Foydalanuvchilar" in t for t in texts)
+
+
+@pytest.mark.asyncio
+async def test_help_mentions_three_reminders(env):
+    out = "\n".join(await say(env, "/yordam"))
+    assert "3 marta" in out and "09:00" in out and "21:00" in out

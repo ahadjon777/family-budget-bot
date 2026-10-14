@@ -7,8 +7,11 @@ from aiogram.types import CallbackQuery, Message
 from config import Settings
 from database import Database
 from keyboards import BTN_HELP, main_menu, reg_kb
+from status import notify_admins
+from utils import user_label
 
 router = Router()
+_announced: set = set()  # admin'ga allaqachon xabar berilgan yangi foydalanuvchilar
 
 WELCOME_NEW = (
     "👋 Assalomu alaykum, <b>{name}</b>!\n\n"
@@ -46,9 +49,15 @@ HELP_TEXT = (
     "/eksport — Excel yoki CSV fayl\n"
     "/oila — oila a'zolari va obuna holati\n"
     "/bekor — joriy amalni bekor qilish\n\n"
-    "🔔 Har kuni soat 21:00 da (Toshkent vaqti) eslatma yuboriladi.\n"
+    "📝 Izoh: harajatdan keyingi <b>📝 Izoh qo'shish</b> tugmasi orqali yoki tezkor kiritishda matn bilan.\n\n"
+    "🔔 Kuniga {count} marta ({times}, Toshkent vaqti) eslatma yuboriladi.\n"
     "👨‍👩‍👧 Oila a'zolari bitta umumiy hisobni yuritadi."
 )
+
+
+def help_text(settings: Settings) -> str:
+    times = ", ".join(f"{h:02d}:{m:02d}" for h, m in settings.reminder_times)
+    return HELP_TEXT.format(count=len(settings.reminder_times), times=times)
 
 
 @router.message(CommandStart())
@@ -58,6 +67,13 @@ async def cmd_start(message: Message, state: FSMContext, db: Database, settings:
     name = user.first_name or "do'stim"
     member = await db.get_user(user.id)
     if member is None:
+        # Bot egasiga: kim botni birinchi marta ochdi (bir foydalanuvchi uchun bir marta)
+        if user.id not in _announced and user.id not in settings.admin_ids:
+            _announced.add(user.id)
+            await notify_admins(
+                message.bot, settings,
+                "👤 <b>Yangi foydalanuvchi botni ochdi</b>\n" + user_label(user) +
+                "\nHali ro'yxatdan o'tmagan.")
         await message.answer(WELCOME_NEW.format(name=name), reply_markup=reg_kb(settings.trial_days))
         return
     await db.update_user_name(user.id, user.full_name, user.username or "")
@@ -72,9 +88,9 @@ async def cmd_menu(message: Message, state: FSMContext, db: Database) -> None:
 
 @router.message(Command("yordam", "help"))
 @router.message(F.text == BTN_HELP)
-async def cmd_help(message: Message, state: FSMContext) -> None:
+async def cmd_help(message: Message, state: FSMContext, settings: Settings) -> None:
     await state.clear()
-    await message.answer(HELP_TEXT, reply_markup=main_menu())
+    await message.answer(help_text(settings), reply_markup=main_menu())
 
 
 @router.message(Command("bekor", "cancel"))

@@ -58,6 +58,29 @@ def month_title(d: date) -> str:
     return f"{MONTHS[d.month - 1]} {d.year}"
 
 
+def fmt_duration(seconds) -> str:
+    """4380 -> '1 soat 13 daqiqa'; 45 -> '45 soniya'"""
+    seconds = max(int(seconds), 0)
+    days, rest = divmod(seconds, 86400)
+    hours, rest = divmod(rest, 3600)
+    minutes, secs = divmod(rest, 60)
+    parts = []
+    if days:
+        parts.append(f"{days} kun")
+    if hours:
+        parts.append(f"{hours} soat")
+    if minutes:
+        parts.append(f"{minutes} daqiqa")
+    return " ".join(parts) if parts else f"{secs} soniya"
+
+
+def user_label(user) -> str:
+    """Admin xabarlari uchun: 'Ali (@ali) · ID 123' (HTML uchun xavfsiz)."""
+    name = esc(user.full_name or "Noma'lum")
+    uname = f" (@{esc(user.username)})" if getattr(user, "username", None) else ""
+    return f"{name}{uname} · ID <code>{user.id}</code>"
+
+
 def sub_status(expires_at):
     """Obuna holati: (faolmi, qolgan kunlar). expires_at None bo'lsa cheksiz: (True, None).
     Tugash kuni ham faol hisoblanadi (qolgan kun = 0)."""

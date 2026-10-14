@@ -10,12 +10,14 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, ErrorEvent
 
+from backup import backup_loop
 from config import BASE_DIR, Settings, load_settings
 from database import Database
 from handlers import admin, expense, export, family, feedback, limit, manage, quick, reports, start
 from middlewares import AccessMiddleware
 from scheduler import reminder_loop
 from status import alert_error, notify_admins, set_bot, set_settings, status_loop
+from uptime import begin_run, end_run, heartbeat_loop, ping_loop, startup_text
 from utils import now_local
 
 logger = logging.getLogger("bot")
@@ -113,30 +115,46 @@ async def main() -> None:
 
     set_bot(bot)
     set_settings(settings)
-    reminder_task = None
-    status_task = None
+    tasks: list = []
+    stop_reason = ""
+    run_started = False
     try:
         me = await bot.get_me()
         logger.info("Bot ishga tushdi: @%s | admin: %d ta | eski a'zolar: %d ta",
                     me.username, len(settings.admin_ids), len(settings.allowed_users))
         await bot.set_my_commands(COMMANDS)
 
-        reminder_task = asyncio.create_task(
-            reminder_loop(bot, db, settings.reminder_hour, settings.reminder_minute)
-        )
+        # Oldingi ish qanday tugagan: tartibli yoki kutilmaganda (server o'chgan)
+        info = await begin_run(db)
+        run_started = True
+
+        tasks.append(asyncio.create_task(reminder_loop(bot, db, settings.reminder_times)))
+        tasks.append(asyncio.create_task(heartbeat_loop(db)))
+        tasks.append(asyncio.create_task(backup_loop(settings.db_path, settings.backup_keep)))
+        if settings.heartbeat_url:
+            tasks.append(asyncio.create_task(ping_loop(settings.heartbeat_url)))
         if settings.status_interval > 0:
-            status_task = asyncio.create_task(status_loop(bot, db, settings))
-        await notify_admins(bot, settings, f"🟢 Bot ishga tushdi (@{me.username})")
+            tasks.append(asyncio.create_task(status_loop(bot, db, settings)))
+        await notify_admins(bot, settings, startup_text(info, me.username))
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        stop_reason = f"\n⚠️ Sabab: xatolik — {type(exc).__name__}: {exc}"[:500]
+        run_started = False  # kutilmaganda to'xtadi: keyingi ishga tushishda shunday xabar beriladi
+        raise
     finally:
-        if reminder_task:
-            reminder_task.cancel()
-        if status_task:
-            status_task.cancel()
+        for task in tasks:
+            task.cancel()
         try:
-            await notify_admins(bot, settings, "🔴 Bot to'xtadi")
+            await notify_admins(bot, settings, "🔴 <b>Bot to'xtadi</b>" + stop_reason)
         except Exception:
             pass
+        if run_started:
+            try:
+                await end_run(db)  # tartibli to'xtash belgisi
+            except Exception:
+                logger.exception("To'xtash belgisini yozib bo'lmadi")
         await bot.session.close()
         await db.close()
         logger.info("Bot to'xtatildi")

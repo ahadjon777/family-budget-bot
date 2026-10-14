@@ -16,13 +16,17 @@ class Settings:
     allowed_users: frozenset      # doimiy bepul "asosiy oila" (bot egasining oilasi)
     admin_ids: frozenset          # admin buyruqlaridan foydalana oladiganlar
     db_path: Path
-    reminder_hour: int
-    reminder_minute: int
+    reminder_times: tuple         # kunlik eslatma vaqtlari: ((9, 0), (15, 0), (21, 0))
     trial_days: int = 7           # yangi oila uchun bepul sinov muddati
     max_members: int = 6          # bitta oiladagi a'zolar soni chegarasi
     contact_text: str = "Bot egasi bilan bog'laning."
     price_text: str = ""
     status_interval: int = 60     # holat xabari yangilanish oralig'i (soniya); 0 = o'chirilgan
+    heartbeat_url: str = ""       # tashqi kuzatuv xizmati (healthchecks.io va h.k.) ping manzili
+    backup_keep: int = 14         # saqlanadigan kunlik zaxira nusxalar soni; 0 = o'chirilgan
+
+
+DEFAULT_REMINDER_TIMES = "09:00,15:00,21:00"
 
 
 def _parse_ids(raw: str, var: str) -> frozenset:
@@ -41,7 +45,7 @@ def _parse_ids(raw: str, var: str) -> frozenset:
     return frozenset(ids)
 
 
-def _parse_time(raw: str):
+def _parse_time(raw: str, var: str = "REMINDER_TIMES"):
     """'21:00' ko'rinishidagi vaqtni (soat, daqiqa) ga aylantiradi."""
     try:
         hour_s, minute_s = raw.strip().split(":")
@@ -51,8 +55,34 @@ def _parse_time(raw: str):
         return hour, minute
     except ValueError:
         raise SystemExit(
-            f"XATO: REMINDER_TIME noto'g'ri: '{raw}'. Format: SS:DD (masalan 21:00)."
+            f"XATO: {var} noto'g'ri: '{raw}'. Format: SS:DD (masalan 21:00)."
         )
+
+
+def _parse_times(raw: str, var: str = "REMINDER_TIMES") -> tuple:
+    """'09:00, 15:00, 21:00' -> ((9, 0), (15, 0), (21, 0)) (tartiblangan, takrorsiz)."""
+    times = {_parse_time(part, var) for part in raw.replace(";", ",").split(",") if part.strip()}
+    if not times:
+        raise SystemExit(f"XATO: {var} bo'sh. Masalan: 09:00,15:00,21:00")
+    return tuple(sorted(times))
+
+
+def _reminder_times() -> tuple:
+    """REMINDER_TIMES (bir nechta vaqt) yoki eski REMINDER_TIME (bitta vaqt); standart: 3 marta."""
+    raw = os.getenv("REMINDER_TIMES", "").strip()
+    if raw:
+        return _parse_times(raw, "REMINDER_TIMES")
+    old = os.getenv("REMINDER_TIME", "").strip()
+    if old:
+        return _parse_times(old, "REMINDER_TIME")
+    return _parse_times(DEFAULT_REMINDER_TIMES)
+
+
+def _heartbeat_url() -> str:
+    url = os.getenv("HEARTBEAT_URL", "").strip()
+    if url and not url.lower().startswith(("http://", "https://")):
+        raise SystemExit("XATO: HEARTBEAT_URL http:// yoki https:// bilan boshlanishi kerak.")
+    return url
 
 
 def _parse_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -86,7 +116,6 @@ def load_settings() -> Settings:
     allowed = _parse_ids(os.getenv("ALLOWED_USERS", ""), "ALLOWED_USERS")
     # ADMIN_IDS ko'rsatilmasa, ALLOWED_USERS dagilar admin hisoblanadi
     admins = _parse_ids(os.getenv("ADMIN_IDS", ""), "ADMIN_IDS") or allowed
-    hour, minute = _parse_time(os.getenv("REMINDER_TIME", "21:00"))
 
     db_raw = os.getenv("DB_PATH", "data/budget.db")
     db_path = Path(db_raw)
@@ -98,11 +127,12 @@ def load_settings() -> Settings:
         allowed_users=allowed,
         admin_ids=admins,
         db_path=db_path,
-        reminder_hour=hour,
-        reminder_minute=minute,
+        reminder_times=_reminder_times(),
         trial_days=_parse_int("TRIAL_DAYS", 7, 0, 365),
         max_members=_parse_int("MAX_MEMBERS", 6, 1, 20),
         contact_text=os.getenv("CONTACT_TEXT", "").strip() or "Bot egasi bilan bog'laning.",
         price_text=os.getenv("PRICE_TEXT", "").strip(),
         status_interval=_status_interval(),
+        heartbeat_url=_heartbeat_url(),
+        backup_keep=_parse_int("BACKUP_KEEP", 14, 0, 365),
     )

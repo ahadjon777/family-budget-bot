@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS users (
     name      TEXT    NOT NULL DEFAULT '',
     username  TEXT    NOT NULL DEFAULT '',
     is_owner  INTEGER NOT NULL DEFAULT 0,
-    joined_at TEXT    NOT NULL
+    joined_at TEXT    NOT NULL,
+    last_active TEXT  NOT NULL DEFAULT ''   -- oxirgi faollik (YYYY-MM-DD HH:MM:SS, Toshkent)
 );
 CREATE INDEX IF NOT EXISTS idx_users_family ON users (family_id);
 
@@ -95,6 +96,9 @@ class Database:
         cols = [r["name"] for r in await self._fetchall("PRAGMA table_info(expenses)")]
         if "family_id" not in cols:
             await self._conn.execute("ALTER TABLE expenses ADD COLUMN family_id INTEGER")
+        user_cols = [r["name"] for r in await self._fetchall("PRAGMA table_info(users)")]
+        if "last_active" not in user_cols:
+            await self._conn.execute("ALTER TABLE users ADD COLUMN last_active TEXT NOT NULL DEFAULT ''")
         await self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_expenses_fam_date ON expenses (family_id, spent_on)")
         await self._conn.execute(
@@ -197,6 +201,30 @@ class Database:
     async def count_members(self, family_id: int) -> int:
         row = await self._fetchone("SELECT COUNT(*) AS c FROM users WHERE family_id = ?", (family_id,))
         return int(row["c"])
+
+    async def touch_user(self, user_id: int, ts: str) -> None:
+        """Foydalanuvchining oxirgi faollik vaqtini yozadi."""
+        await self._execute("UPDATE users SET last_active = ? WHERE user_id = ?", (ts, user_id))
+
+    async def count_active_since(self, ts: str) -> int:
+        """Berilgan vaqtdan (YYYY-MM-DD HH:MM:SS) beri faol bo'lgan foydalanuvchilar soni."""
+        row = await self._fetchone("SELECT COUNT(*) AS c FROM users WHERE last_active >= ?", (ts,))
+        return int(row["c"])
+
+    async def list_users(self, limit: int = 20, offset: int = 0) -> list:
+        """Foydalanuvchilar, oxirgi faolligi bo'yicha (yangilari birinchi)."""
+        return await self._fetchall(
+            "SELECT u.user_id, u.name, u.username, u.family_id, u.is_owner, u.joined_at, u.last_active, "
+            " f.name AS family_name, "
+            " (SELECT COUNT(*) FROM expenses e WHERE e.user_id = u.user_id) AS expense_count "
+            "FROM users u LEFT JOIN families f ON f.id = u.family_id "
+            "ORDER BY CASE WHEN u.last_active = '' THEN u.joined_at ELSE u.last_active END DESC, u.user_id "
+            "LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+
+    async def count_users(self) -> int:
+        return int((await self._fetchone("SELECT COUNT(*) AS c FROM users"))["c"])
 
     async def users_for_reminders(self) -> list:
         return await self._fetchall(
@@ -346,6 +374,13 @@ class Database:
         cur = await self._conn.execute("UPDATE feedback SET status = ? WHERE id = ?", (status, feedback_id))
         await self._conn.commit()
         return cur.rowcount > 0
+
+    # ---------- umumiy (oilaga bog'liq bo'lmagan) sozlamalar ----------
+    async def global_get(self, key: str) -> Optional[str]:
+        return await self._global_get(key)
+
+    async def global_set(self, key: str, value: str) -> None:
+        await self._global_set(key, value)
 
     # ---------- eski versiyadan ko'chirish ----------
     async def _global_get(self, key: str) -> Optional[str]:

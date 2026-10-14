@@ -1,12 +1,14 @@
-py ma"""Kirish nazorati: ro'yxatdan o'tganmi, oila obunasi faolmi, admin buyruqlarimi."""
+"""Kirish nazorati: ro'yxatdan o'tganmi, oila obunasi faolmi, admin buyruqlarimi.
+Shuningdek, foydalanuvchining oxirgi faollik vaqtini yozib boradi (admin /foydalanuvchilar uchun)."""
 import logging
+import time
 
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message
 
 from database import Database
 from keyboards import BTN_FAMILY, BTN_HELP
-from utils import sub_status
+from utils import now_local, sub_status
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +16,9 @@ logger = logging.getLogger(__name__)
 ONBOARDING_TEXT = {"/start", "/yordam", "/help"}
 # Obuna tugagan oila a'zolariga ochiq: faqat ma'lumot va oila bo'limi
 EXPIRED_OK_TEXT = ONBOARDING_TEXT | {BTN_HELP, BTN_FAMILY, "/oila", "/menu"}
-ADMIN_PREFIXES = ("/admin", "/oilalar", "/uzaytir", "/cheksiz", "/yopish")
+ADMIN_PREFIXES = ("/admin", "/oilalar", "/uzaytir", "/cheksiz", "/yopish",
+                  "/holat", "/fikrlar", "/fikrok", "/foydalanuvchilar")
+TOUCH_INTERVAL = 60  # oxirgi faollikni bazaga ko'pi bilan daqiqada bir marta yozamiz
 
 
 class AccessMiddleware(BaseMiddleware):
@@ -22,6 +26,7 @@ class AccessMiddleware(BaseMiddleware):
         self.db = db
         self.admin_ids = frozenset(admin_ids)
         self.contact_text = contact_text
+        self._touched: dict = {}  # user_id -> oxirgi yozilgan vaqt (monotonic)
 
     async def __call__(self, handler, event, data):
         user = data.get("event_from_user")
@@ -50,6 +55,8 @@ class AccessMiddleware(BaseMiddleware):
             await self._deny(event, "👋 Avval /start buyrug'ini yuboring.")
             return None
 
+        await self._touch(user.id)
+
         family = await self.db.get_family(member["family_id"])
         active, _ = sub_status(family["expires_at"] if family else None)
         data["family_id"] = member["family_id"]
@@ -65,6 +72,17 @@ class AccessMiddleware(BaseMiddleware):
                 return None
 
         return await handler(event, data)
+
+    async def _touch(self, user_id: int) -> None:
+        """Oxirgi faollik vaqtini yangilaydi (xato bo'lsa asosiy ishga to'sqinlik qilmaydi)."""
+        now = time.monotonic()
+        if now - self._touched.get(user_id, -TOUCH_INTERVAL) < TOUCH_INTERVAL:
+            return
+        self._touched[user_id] = now
+        try:
+            await self.db.touch_user(user_id, now_local().strftime("%Y-%m-%d %H:%M:%S"))
+        except Exception:
+            logger.exception("Oxirgi faollikni yozib bo'lmadi (user_id=%s)", user_id)
 
     async def _deny(self, event, text: str) -> None:
         try:

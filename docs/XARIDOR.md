@@ -54,7 +54,17 @@ Summa: `45000`, `45 000`, `45k`, `45 ming`, `1.2 mln`. Kategoriya aniqlanmasa, b
 
 ## 8. Kunlik eslatma
 
-Har kuni soat **21:00** da (Toshkent vaqti) bot oilaga bugungi holatni eslatadi. Bugun hech narsa kiritilmagan bo'lsa, shuni ham aytadi.
+Kuniga **3 marta** (09:00, 15:00 va 21:00, Toshkent vaqti) bot harajatlarni kiritishni eslatadi: ertalab, kunduzi va kechqurun.
+Bugun hech narsa kiritilmagan bo'lsa, shuni ham aytadi. Vaqtlarni bot egasi o'zgartirishi mumkin.
+
+## Izoh yozish
+
+Har bir harajatga izoh qo'shish mumkin:
+
+- Tezkor kiritishda summadan keyin yozing: `ovqat 45000 tushlik`.
+- Izohsiz saqlangan harajat tagida **📝 Izoh qo'shish** tugmasi chiqadi, bosing va izohni yozing.
+- **➕ Harajat qo'shish** orqali kiritganda summadan keyin izoh so'raladi (kerak bo'lmasa «Izohsiz saqlash»).
+- **/bugun** hisobotida har bir yozuv vaqti, izohi va kim kiritgani bilan ko'rinadi, oxirida esa kechagi jami.
 
 ## 9. Obuna
 
