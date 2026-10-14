@@ -18,7 +18,7 @@ from middlewares import AccessMiddleware
 from scheduler import reminder_loop
 from status import alert_error, notify_admins, set_bot, set_settings, status_loop
 from uptime import begin_run, end_run, heartbeat_loop, ping_loop, startup_text
-from utils import now_local
+from utils import esc, now_local
 
 logger = logging.getLogger("bot")
 
@@ -74,6 +74,18 @@ async def on_error(event: ErrorEvent) -> bool:
     except Exception:
         logger.exception("Xatolik haqida foydalanuvchiga xabar berib bo'lmadi")
     return True
+
+
+async def _db_note(db: Database, settings: Settings) -> str:
+    """Qaysi baza fayli ishlatilayotgani va ichida nima borligi: har safar yangilanganda ma'lumot
+    "yo'qolib qolgan"mi yoki bot boshqa (bo'sh) bazani ochganmi, darhol ko'rinadi."""
+    st = await db.stats()
+    note = (f"\n💾 Baza: <code>{esc(str(settings.db_path))}</code>"
+            f"\n🧾 Harajatlar: {st['expenses']} ta · 🏠 oilalar: {len(st['expires'])} ta")
+    if st["expenses"] == 0:
+        note += ("\n⚠️ Baza bo'sh. Eski ma'lumotlaringiz boshqa papkadagi <code>data/budget.db</code> da bo'lishi mumkin: "
+                 "uni shu joyga ko'chiring yoki .env da DB_PATH ni o'sha faylga yo'naltiring.")
+    return note
 
 
 def build_dispatcher(db: Database, settings: Settings) -> Dispatcher:
@@ -135,7 +147,7 @@ async def main() -> None:
             tasks.append(asyncio.create_task(ping_loop(settings.heartbeat_url)))
         if settings.status_interval > 0:
             tasks.append(asyncio.create_task(status_loop(bot, db, settings)))
-        await notify_admins(bot, settings, startup_text(info, me.username))
+        await notify_admins(bot, settings, startup_text(info, me.username) + await _db_note(db, settings))
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     except asyncio.CancelledError:
         raise
